@@ -1,0 +1,74 @@
+name: Build Midpoint Visuals
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.11'
+
+      - name: Unzip project
+        run: |
+          echo "Looking for ZIP..."
+          ls -la *.zip || true
+          if [ -f "midpoint-visuals.zip" ]; then
+            echo "Found midpoint-visuals.zip, extracting..."
+            unzip -q midpoint-visuals.zip -d extracted/
+            mv extracted/midpoint-visuals/* .
+            rm -rf extracted/
+            echo "Project extracted successfully"
+          elif [ -f "midpoint-visuals/midpoint-visuals.zip" ]; then
+            echo "Found nested ZIP, extracting..."
+            unzip -q midpoint-visuals/midpoint-visuals.zip -d extracted/
+            mv extracted/midpoint-visuals/* .
+            rm -rf extracted/ midpoint-visuals/
+          else
+            echo "No ZIP found, assuming flat structure"
+          fi
+          ls -la
+
+      - name: Generate Gradle Wrapper
+        run: |
+          gradle wrapper --gradle-version 8.11
+          chmod +x gradlew
+
+      - name: Build mod
+        run: ./gradlew build --no-daemon --stacktrace
+
+      - name: Find JAR
+        run: |
+          echo "Built JARs:"
+          ls -la build/libs/
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: midpoint-visuals-mod
+          path: build/libs/*[!-sources][!-dev].jar
+
+      - name: Create Release (if tagged)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/libs/*[!-sources][!-dev].jar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -18,37 +18,54 @@ jobs:
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
+          java-version: "21"
+          distribution: "temurin"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '8.11'
+          gradle-version: "8.11"
 
-      - name: Unzip project
+      - name: Unzip project (if ZIP exists)
+        shell: bash
         run: |
           echo "Looking for ZIP..."
-          ls -la *.zip || true
+          ls -la
+
           if [ -f "midpoint-visuals.zip" ]; then
-            echo "Found midpoint-visuals.zip, extracting..."
-            unzip -q midpoint-visuals.zip -d extracted/
-            mv extracted/midpoint-visuals/* .
-            rm -rf extracted/
-            echo "Project extracted successfully"
-          elif [ -f "midpoint-visuals/midpoint-visuals.zip" ]; then
-            echo "Found nested ZIP, extracting..."
-            unzip -q midpoint-visuals/midpoint-visuals.zip -d extracted/
-            mv extracted/midpoint-visuals/* .
-            rm -rf extracted/ midpoint-visuals/
+            echo "Found midpoint-visuals.zip"
+            mkdir extracted
+            unzip -q midpoint-visuals.zip -d extracted
+
+            echo "Archive contents:"
+            find extracted
+
+            shopt -s dotglob
+
+            # Если внутри одна папка — переносим её содержимое
+            DIR_COUNT=$(find extracted -mindepth 1 -maxdepth 1 -type d | wc -l)
+
+            if [ "$DIR_COUNT" -eq 1 ]; then
+              ROOT_DIR=$(find extracted -mindepth 1 -maxdepth 1 -type d | head -n1)
+              mv "$ROOT_DIR"/* .
+            else
+              mv extracted/* .
+            fi
+
+            rm -rf extracted
+            echo "Extraction complete."
           else
-            echo "No ZIP found, assuming flat structure"
+            echo "ZIP not found. Using repository files."
           fi
+
+          echo "Current directory:"
           ls -la
 
       - name: Generate Gradle Wrapper
         run: |
-          gradle wrapper --gradle-version 8.11
+          if [ ! -f "./gradlew" ]; then
+            gradle wrapper --gradle-version 8.11
+          fi
           chmod +x gradlew
 
       - name: Build mod
@@ -57,18 +74,22 @@ jobs:
       - name: Find JAR
         run: |
           echo "Built JARs:"
-          ls -la build/libs/
+          find build/libs -name "*.jar"
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: midpoint-visuals-mod
-          path: build/libs/*[!-sources][!-dev].jar
+          path: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar
+            !build/libs/*-dev.jar
 
       - name: Create Release (if tagged)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/libs/*[!-sources][!-dev].jar
+          files: |
+            build/libs/*.jar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
